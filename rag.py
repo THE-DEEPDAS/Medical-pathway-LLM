@@ -16,10 +16,15 @@ import os
 import json
 from health_simulator import HealthMetricsSimulator
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List, Dict
 from ingest import ingest_docs  # Add this at the top with other imports
 from db.user_store import UserStore
 from models.user import UserProfile
+from datetime import datetime
+import random
+import numpy as np
+from custom_pathway import PathwayAnalyzer  # Add this import
+from langchain.prompts import PromptTemplate  # Fix import warning
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -91,56 +96,6 @@ except Exception as e:
 
 print("LLM Initialized....")
 
-def format_health_analysis(metrics):
-    """Format health metrics analysis"""
-    status = []
-    
-    # Heart rate analysis
-    hr = int(metrics['heart_rate'])
-    if hr < 60: status.append("Heart rate is below normal range")
-    elif hr > 100: status.append("Heart rate is above normal range")
-    
-    # Blood pressure analysis
-    bp = metrics['blood_pressure'].split('/')
-    systolic, diastolic = int(bp[0]), int(bp[1])
-    if systolic > 130 or diastolic > 80:
-        status.append("Blood pressure is elevated")
-    
-    # Cholesterol analysis
-    if metrics['cholesterol'] > 200:
-        status.append("Cholesterol levels are elevated")
-    
-    return " | ".join(status) if status else "All metrics within normal range"
-
-prompt_template = """
-Use the following pieces of medical information and current health metrics to provide accurate responses to the user's questions.
-
-Context: {context}
-Question: {question}
-
-Current Health Metrics:
-- Heart Rate: {heart_rate} bpm
-- Blood Pressure: {blood_pressure}
-- Sleep Duration: {sleep_hours} hours
-- Sleep Quality: {sleep_quality}
-- Calories Burned: {calories_burned} kcal
-- Cholesterol: {cholesterol} mg/dL
-
-Patient Details:
-- Age: {age}
-- Gender: {gender}
-
-Health Analysis: {health_analysis}
-
-Please provide a comprehensive answer that:
-1. Addresses the specific question
-2. Considers the patient's current health metrics
-3. Provides relevant medical advice based on both the context and health status
-4. Suggests any necessary lifestyle modifications or precautions
-
-Helpful answer:
-"""
-
 # Replace the embeddings initialization with:
 try:
     embeddings = HuggingFaceEmbeddings(
@@ -189,121 +144,300 @@ def initialize_collection():
         return False
     return True
 
+# Replace the prompt_template with this version that includes 'context' and 'question'
+prompt_template = """
+Context: {context}
+Query: {query}
+
+Patient Profile:
+- Age: {age} years
+- Gender: {gender}
+- BMI: {bmi} ({bmi_category})
+
+Current Metrics:
+{real_time_metrics}
+
+Analysis:
+{threshold_analysis}
+
+Based on this information, please provide:
+1. Overall health assessment
+2. Key concerns
+3. Recommendations
+4. Required monitoring
+
+Response:
+"""
+
 # Call this before creating the db instance
 if not initialize_collection():
     raise RuntimeError("Failed to initialize medical_db collection")
 
+# Create db and retriever before using them
 db = Qdrant(client=client, embeddings=embeddings, collection_name="medical_db")
+retriever = db.as_retriever(search_kwargs={"k": 3})
 
-prompt = PromptTemplate(template=prompt_template, input_variables=['context', 'question'])
+# Now create the prompt template
+prompt = PromptTemplate(
+    template=prompt_template,
+    input_variables=['context', 'query', 'age', 'gender', 'bmi', 'bmi_category', 'real_time_metrics', 'threshold_analysis']
+)
 
-retriever = db.as_retriever(search_kwargs={"k":1})
-
+# Create QA chain with the defined retriever
 qa = RetrievalQA.from_chain_type(
     llm=llm,
     chain_type="stuff",
     retriever=retriever,
-    chain_type_kwargs={"prompt": prompt}
+    chain_type_kwargs={
+        "prompt": prompt,
+        "document_variable_name": "context"
+    }
 )
 
-class QueryRequest(BaseModel):
-    query: str
-    age: Optional[int] = None
-    gender: Optional[str] = None
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-user_store = UserStore()
-
-@app.get("/", response_class=HTMLResponse)
+# Add root route handler with proper template
+@app.get("/")
 async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
-@app.get("/guide", response_class=HTMLResponse)
-async def show_guide(request: Request):
-    return templates.TemplateResponse("guide.html", {"request": request})
-
-@app.post("/login")
-async def login(request: LoginRequest):
-    user_id = user_store.verify_login(request.email, request.password)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    return {"user_id": user_id}
-
-@app.post("/register_user")
-async def register_user(user: UserProfile):
-    try:
-        user_id = user_store.save_user(user)
-        return JSONResponse(
-            content={"status": "success", "user_id": user_id},
-            status_code=201
-        )
-    except Exception as e:
-        return JSONResponse(
-            content={"error": str(e)},
-            status_code=400
-        )
-
-@app.post("/get_response")
-async def get_response(
-    request: Request,
-    query: str = Form(None),
-    user_id: str = Form(None)
-):
-    # Validate required fields
-    errors = []
-    if not query:
-        errors.append("Question is required")
-    if not user_id:
-        errors.append("User ID is required")
-    
-    if errors:
-        return JSONResponse(
-            content={
-                "error": "Validation Error",
-                "details": errors,
-                "help": "Please visit /guide for usage instructions"
-            },
-            status_code=422
-        )
-
-    try:
-        user = user_store.get_user(user_id)
-        if not user:
-            return JSONResponse(
-                content={
-                    "error": "User not found",
-                    "help": "Please register first at /guide"
-                },
-                status_code=404
-            )
-        
-        # Generate health metrics using profile
-        health_metrics = HealthMetricsSimulator.generate_metrics(user)
-        
-        # Create the question input with combined static and real-time data
-        question_input = {
-            "question": query,
-            "context": "",
-            **health_metrics["static"],
-            **health_metrics["real_time"]
+class HealthAnalyzer:
+    def __init__(self, llm):
+        self.llm = llm
+        self.thresholds = {
+            'heart_rate': {'low': 60, 'high': 100},
+            'blood_pressure': {'systolic': {'low': 90, 'high': 140},
+                             'diastolic': {'low': 60, 'high': 90}},
+            'blood_sugar': {'low': 70, 'high': 140},
+            'spo2': {'low': 95, 'high': 100},
+            'respiratory_rate': {'low': 12, 'high': 20},
+            'body_temperature': {'low': 36.5, 'high': 37.5}
         }
+
+    def analyze(self, user_data: dict) -> dict:
+        try:
+            # Get simulated metrics
+            metrics = HealthMetricsSimulator.generate_metrics(user_data)
+            
+            # Calculate health indicators
+            bmi = self.calculate_bmi(user_data['weight'], user_data['height'])
+            bmi_category = self.get_bmi_category(bmi)
+            
+            # Analyze metrics against thresholds
+            threshold_analysis = self.analyze_thresholds(metrics['real_time'])
+            
+            # Format metrics for prompt
+            formatted_metrics = self.format_metrics(metrics['real_time'])
+            
+            # Create context from user data and metrics
+            context = self.create_analysis_context(user_data, metrics, bmi, bmi_category, threshold_analysis)
+            
+            # Get analysis from LLM
+            analysis = self.get_llm_analysis(context)
+
+            return {
+                "metrics": metrics['real_time'],
+                "static_data": {
+                    "age": user_data['age'],
+                    "gender": user_data['gender'],
+                    "height": user_data['height'],
+                    "weight": user_data['weight'],
+                    "bmi": round(bmi, 2),
+                    "bmi_category": bmi_category
+                },
+                "analysis": analysis,
+                "threshold_violations": threshold_analysis,
+                "recommendations": self.extract_recommendations(analysis),
+                "timestamp": datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            print(f"Error in analysis: {str(e)}")
+            return self._get_safe_response()
+
+    def analyze_thresholds(self, metrics: dict) -> List[str]:
+        violations = []
         
-        # Get response from QA chain
-        response = qa(question_input)
+        for metric, value in metrics.items():
+            if metric == 'blood_pressure':
+                try:
+                    systolic, diastolic = map(int, value.split('/'))
+                    if systolic > self.thresholds['blood_pressure']['systolic']['high']:
+                        violations.append(f"High systolic blood pressure: {systolic} mmHg")
+                    elif systolic < self.thresholds['blood_pressure']['systolic']['low']:
+                        violations.append(f"Low systolic blood pressure: {systolic} mmHg")
+                    
+                    if diastolic > self.thresholds['blood_pressure']['diastolic']['high']:
+                        violations.append(f"High diastolic blood pressure: {diastolic} mmHg")
+                    elif diastolic < self.thresholds['blood_pressure']['diastolic']['low']:
+                        violations.append(f"Low diastolic blood pressure: {diastolic} mmHg")
+                except:
+                    violations.append("Invalid blood pressure format")
+                continue
+                
+            if metric in self.thresholds:
+                try:
+                    if isinstance(value, (int, float)):
+                        if value < self.thresholds[metric]['low']:
+                            violations.append(f"Low {metric.replace('_', ' ')}: {value}")
+                        elif value > self.thresholds[metric]['high']:
+                            violations.append(f"High {metric.replace('_', ' ')}: {value}")
+                except:
+                    continue
+
+        return violations
+
+    def create_analysis_context(self, user_data: dict, metrics: dict, bmi: float, bmi_category: str, violations: List[str]) -> str:
+        return f"""
+        Patient Profile:
+        - Age: {user_data['age']} years
+        - Gender: {user_data['gender']}
+        - BMI: {bmi:.1f} ({bmi_category})
+        - Lifestyle: {user_data.get('lifestyle', 'moderate')}
+
+        Current Health Metrics:
+        {self.format_metrics(metrics['real_time'])}
+
+        Health Concerns:
+        {'; '.join(violations) if violations else 'No immediate concerns'}
+
+        Medical History:
+        {user_data.get('medical_conditions', ['No known conditions'])}
+
+        Current Medications:
+        {user_data.get('medications', ['None reported'])}
+        """
+
+    def get_llm_analysis(self, context: str) -> str:
+        prompt = f"""
+        As a healthcare AI assistant, analyze the following patient data and provide:
+        1. Overall health assessment
+        2. Key concerns and risks
+        3. Specific recommendations for improvement
+        4. Monitoring requirements
+
+        {context}
+
+        Please provide a detailed but concise analysis:
+        """
         
-        return JSONResponse(content={
-            "answer": response['result'],
-            "source_document": response['source_documents'][0].page_content if response['source_documents'] else "",
-            "health_metrics": health_metrics,
-            "user_profile": user.dict()
-        })
-        
+        try:
+            return self.llm(prompt)
+        except Exception as e:
+            print(f"LLM Analysis error: {str(e)}")
+            return "Error generating analysis"
+
+    def extract_recommendations(self, analysis: str) -> List[str]:
+        try:
+            # Split by newlines and look for recommendation markers
+            lines = analysis.split('\n')
+            recommendations = []
+            capturing = False
+            
+            for line in lines:
+                if 'recommendation' in line.lower() or 'advise' in line.lower():
+                    capturing = True
+                elif capturing and line.strip():
+                    if line.startswith('-') or line.startswith('•'):
+                        recommendations.append(line.strip('- •'))
+                elif capturing and not line.strip():
+                    capturing = False
+                    
+            return recommendations if recommendations else ["No specific recommendations generated"]
+        except:
+            return ["Error extracting recommendations"]
+
+    # ...existing code (keep the remaining helper methods)...
+
+    @staticmethod
+    def calculate_bmi(weight: float, height: float) -> float:
+        return weight / ((height/100) ** 2)
+
+    @staticmethod
+    def get_bmi_category(bmi: float) -> str:
+        if bmi < 18.5: return "Underweight"
+        elif bmi < 25: return "Normal weight"
+        elif bmi < 30: return "Overweight"
+        else: return "Obese"
+
+    @staticmethod
+    def format_metrics(metrics: dict) -> str:
+        return "\n".join([f"- {k.replace('_', ' ').title()}: {v}" 
+                         for k, v in metrics.items()])
+
+    def _extract_recommendations(self, analysis: str) -> List[str]:
+        """Extract recommendations from the analysis text"""
+        # Placeholder implementation
+        return analysis.split('\n')
+
+    def _get_safe_response(self) -> dict:
+        """Return a safe response in case of errors"""
+        return {
+            "metrics": {},
+            "static_data": {},
+            "analysis": "Error in analysis",
+            "threshold_violations": [],
+            "bmi_data": {"value": 0, "category": "Unknown"},
+            "recommendations": [],
+            "timestamp": datetime.now().isoformat()
+        }
+
+# Add these new route handlers before the existing /analyze_health endpoint
+@app.get("/analyze_health")
+async def get_health_form(request: Request):
+    """Return the health analysis form"""
+    return templates.TemplateResponse("health_form.html", {"request": request})
+
+@app.get("/health_analyze")
+async def get_health_analyze(
+    age: int,
+    gender: str,
+    weight: float,
+    height: float,
+    lifestyle: str = "moderate"
+):
+    """Handle GET requests for health analysis"""
+    try:
+        data = {
+            "age": age,
+            "gender": gender,
+            "weight": weight,
+            "height": height,
+            "lifestyle": lifestyle
+        }
+        result = analyzer.analyze(data)
+        return JSONResponse(content=jsonable_encoder(result))
     except Exception as e:
-        print(f"Error in get_response: {str(e)}")
-        return JSONResponse(
-            content={"error": str(e)},
-            status_code=500
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing health analysis: {str(e)}"
         )
+
+# Modify the existing POST endpoint
+@app.post("/analyze_health")
+async def analyze_health(data: dict):
+    """Handle POST requests for health analysis"""
+    try:
+        required_fields = ["age", "gender", "weight", "height"]
+        if not all(k in data for k in required_fields):
+            raise ValueError(f"Missing required fields. Please provide: {', '.join(required_fields)}")
+        
+        # Convert numeric fields
+        data["age"] = int(data["age"])
+        data["weight"] = float(data["weight"])
+        data["height"] = float(data["height"])
+        
+        # Set default lifestyle if not provided
+        if "lifestyle" not in data:
+            data["lifestyle"] = "moderate"
+        
+        result = analyzer.analyze(data)
+        return JSONResponse(content=jsonable_encoder(result))
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing health analysis: {str(e)}")
+
+# Initialize analyzer with just LLM
+analyzer = HealthAnalyzer(llm)
+
+# Initialize with Fastapi mount for static files
+app.mount("/static", StaticFiles(directory="static"), name="static")

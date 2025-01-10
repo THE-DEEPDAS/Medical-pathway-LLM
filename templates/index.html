@@ -2,337 +2,146 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Medical Assistant</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <title>Health Analysis</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body {
-            background-color: black;
-            font-family: 'Poppins', sans-serif;
-            color: white;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .chat-container {
-            max-width: 800px;
-            margin: 50px auto;
-            margin-top: 10%;
-            padding: 20px;
-            background-color: #333;
-            border-radius: 10px;
-        }
-        .chat-heading {
-            text-align: center;
-            font-size: 2.5em;
-            font-weight: 600;
-            margin-bottom: 30px;
-            color: #ffd700; /* Golden color for the heading */
-        }
-        .chat-input {
-            margin-top: 20px; /* Added margin */
-            margin-bottom: 20px;
-            height: 100px; /* Increased height */
-        }
-        .chat-button {
-            background-color: green;
-            color: white;
-            padding: 10px 20px;
-            font-size: 1.2em;
-        }
-        .chat-response {
-            background-color: #444;
-            padding: 15px;
-            border-radius: 5px;
-            min-height: 100px; /* Minimum height for the response box */
-            margin-top: 20px;
-        }
-        .accordion {
-            margin-top: 20px;
-            background-color: #444;
-            border-radius: 5px;
-        }
-        .accordion-button {
-            color: white;
-            background-color: #555;
-        }
-        .accordion-body {
-            color: white; /* Improved visibility of text */
-        }
-        pre {
-            white-space:pre-wrap;
-        }
-        .health-metrics {
-            background-color: #444;
-            padding: 15px;
-            border-radius: 5px;
-            margin-top: 20px;
-        }
-        .metric-card {
-            background-color: #555;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 5px;
-        }
-        .setup-form, .query-form { margin: 20px 0; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
-        .instructions { background: #f5f5f5; padding: 15px; margin: 10px 0; border-left: 4px solid #007bff; }
-        .error { color: red; }
-        .success { color: green; }
-        input, select { width: 100%; padding: 8px; margin: 5px 0 15px; }
-        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
-        #metrics { margin-top: 20px; }
+        body { background: #f5f5f5; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .metrics-card { margin: 10px; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .metrics { padding: 10px; margin: 10px; border: 1px solid #ccc; }
+        .analysis { padding: 10px; margin: 10px; border: 1px solid #090; }
     </style>
 </head>
 <body>
-    <h1>Medical Assistant</h1>
-    
-    <div class="alert alert-info">
-        New user? <a href="/guide" class="alert-link">Read our User Guide</a> to get started!
-    </div>
-
-    <div class="instructions">
-        <h3>How to Use:</h3>
-        <ol>
-            <li>First, register your profile with basic health information</li>
-            <li>Your unique user ID will be provided - save it for future use</li>
-            <li>Use your user ID to ask medical questions</li>
-            <li>The system will provide personalized responses based on your health data</li>
-        </ol>
-    </div>
-
-    <div class="container chat-container">
-        <div class="row">
-            <div class="col-md-6">
-                <div class="login-form">
-                    <h2>Login</h2>
-                    <form id="loginForm">
-                        <div class="mb-3">
-                            <label>Email:</label>
-                            <input type="email" id="loginEmail" required class="form-control">
-                        </div>
-                        <div class="mb-3">
-                            <label>Password:</label>
-                            <input type="password" id="loginPassword" required class="form-control">
-                        </div>
-                        <button type="submit" class="btn btn-primary">Login</button>
-                    </form>
+    <div class="container">
+        <h1 class="text-center mb-4">Real-Time Health Analysis</h1>
+        
+        <form id="healthForm" class="p-4 bg-white rounded shadow">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Age</label>
+                    <input type="number" id="age" class="form-control" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Gender</label>
+                    <select id="gender" class="form-control" required>
+                        <option value="">Select Gender</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Weight (kg)</label>
+                    <input type="number" id="weight" class="form-control" step="0.1" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Height (cm)</label>
+                    <input type="number" id="height" class="form-control" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Lifestyle</label>
+                    <select id="lifestyle" class="form-control" required>
+                        <option value="">Select Lifestyle</option>
+                        <option value="sedentary">Sedentary</option>
+                        <option value="active">Active</option>
+                        <option value="very_active">Very Active</option>
+                    </select>
                 </div>
             </div>
-            
-            <div class="col-md-6">
-                <div class="setup-form">
-                    <h2>Register New User</h2>
-                    <form id="userSetupForm">
-                        <div class="mb-3">
-                            <label>Name:</label>
-                            <input type="text" name="name" required class="form-control">
-                        </div>
-                        <div class="mb-3">
-                            <label>Email:</label>
-                            <input type="email" name="email" required class="form-control">
-                        </div>
-                        <div class="mb-3">
-                            <label>Password:</label>
-                            <input type="password" name="password" required class="form-control">
-                        </div>
-                        <label>Age:</label>
-                        <input type="number" name="age" required min="1" max="120">
-                        
-                        <label>Gender:</label>
-                        <select name="gender" required>
-                            <option value="" disabled selected>Gender</option>
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                            <option value="other">Other</option>
-                        </select>
-                        
-                        <label>Name:</label>
-                        <input type="text" name="name" required>
-                        
-                        <button type="submit">Register</button>
-                    </form>
-                </div>
-            </div>
+            <button type="submit" class="btn btn-primary w-100">Submit</button>
+        </form>
+
+        <div id="results" style="display:none">
+            <div class="metrics" id="metricsDisplay"></div>
+            <div class="analysis" id="analysisDisplay"></div>
         </div>
 
-        <div class="accordion" id="appDescriptionAccordion">
-            <div class="accordion-item"></div>
-                <h2 class="accordion-header" id="descriptionHeading">
-                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseDescription" aria-expanded="true" aria-controls="collapseDescription">
-                        About This App
-                    </button>
-                </h2>
-                <div id="collapseDescription" class="accordion-collapse collapse" aria-labelledby="descriptionHeading" data-bs-parent="#appDescriptionAccordion">
-                    <div class="accordion-body text-dark">
-                        Medical RAG application using Fine-Tuned Gamma, Lamma and Mistral. Qdrant local DB is used to store chunk. Semantic chunking has been applied for chunking purpose.
-                    </div>
-                </div>
+        <div id="analysisResults" style="display:none;">
+            <div class="card mb-3">
+                <div class="card-header">Real-Time Health Metrics</div>
+                <div class="card-body" id="metricsDisplay"></div>
             </div>
-        </div>
 
-        <!-- Add Health Metrics Display -->
-        <div class="health-metrics mb-4">
-            <h5 class="text-white">Current Health Metrics</h5>
-            <div class="row" id="healthMetrics">
-                <!-- Metrics will be populated here -->
+            <div class="card mb-3">
+                <div class="card-header">Key Insights</div>
+                <div class="card-body" id="insightsDisplay"></div>
             </div>
-        </div>
 
-        <div class="row">
-            <div class="col">
-                <textarea id="userInput" class="form-control chat-input" placeholder="Type your query here..."></textarea>
-                <button id="submitBtn" class="btn chat-button">Submit</button>
-                <div id="response" class="chat-response"></div>
+            <div class="card mb-3">
+                <div class="card-header">Recommendations</div>
+                <div class="card-body" id="recommendationsDisplay"></div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Analysis Sources</div>
+                <div class="card-body" id="sourcesDisplay"></div>
             </div>
         </div>
     </div>
+
+    <!-- Add error display -->
+    <div id="errorAlert" class="alert alert-danger" style="display:none;"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let currentUserId = null;
 
-        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+        document.getElementById('healthForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = {
-                email: document.getElementById('loginEmail').value,
-                password: document.getElementById('loginPassword').value
+                age: parseInt(document.getElementById('age').value),
+                gender: document.getElementById('gender').value,
+                weight: parseFloat(document.getElementById('weight').value),
+                height: parseFloat(document.getElementById('height').value),
+                lifestyle: document.getElementById('lifestyle').value
             };
 
             try {
-                const response = await fetch('/login', {
+                const response = await fetch('/analyze_health', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData)
                 });
 
                 const data = await response.json();
-                if (data.user_id) {
-                    currentUserId = data.user_id;
-                    document.querySelector('.chat-interface').style.display = 'block';
-                    document.querySelector('.login-container').style.display = 'none';
-                }
+                displayResults(data);
             } catch (error) {
-                console.error('Login failed:', error);
+                document.getElementById('errorAlert').style.display = 'block';
+                document.getElementById('errorAlert').textContent = 
+                    `Error: ${error.message || 'Failed to process request'}`;
             }
         });
 
-        document.getElementById('userSetupForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const formData = new FormData(this);
-            const userData = Object.fromEntries(formData);
-
-            try {
-                const response = await fetch('/register_user', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(userData)
-                });
-
-                const data = await response.json();
-                if (data.user_id) {
-                    alert(`Registration successful! Your User ID is: ${data.user_id}`);
-                    currentUserId = data.user_id;
-                }
-            } catch (error) {
-                console.error('Registration failed:', error);
-            }
-        });
-
-        function displayHealthMetrics(metrics, analysis) {
-            const metricsDiv = document.getElementById('healthMetrics');
-            metricsDiv.innerHTML = `
-                <div class="col-md-4 metric-card">
-                    <h6>Heart Rate</h6>
-                    <p>${metrics.heart_rate} bpm</p>
-                </div>
-                <div class="col-md-4 metric-card">
-                    <h6>Blood Pressure</h6>
-                    <p>${metrics.blood_pressure}</p>
-                </div>
-                <div class="col-md-4 metric-card">
-                    <h6>Sleep</h6>
-                    <p>${metrics.sleep_hours}hrs (${metrics.sleep_quality})</p>
-                </div>
-                <div class="col-md-4 metric-card">
-                    <h6>Calories Burned</h6>
-                    <p>${metrics.calories_burned} kcal</p>
-                </div>
-                <div class="col-md-4 metric-card">
-                    <h6>Cholesterol</h6>
-                    <p>${metrics.cholesterol} mg/dL</p>
-                </div>
-                <div class="col-md-12 metric-card">
-                    <h6>Health Analysis</h6>
-                    <p>${analysis}</p>
-                </div>
-            `;
+        function displayResults(data) {
+            document.getElementById('results').style.display = 'block';
+            document.getElementById('metricsDisplay').innerHTML = formatMetrics(data.metrics);
+            document.getElementById('analysisDisplay').innerHTML = data.analysis;
+            
+            // Display metrics
+            document.getElementById('metricsDisplay').innerHTML = formatMetrics(data.metrics);
+            
+            // Display insights
+            document.getElementById('insightsDisplay').innerHTML = 
+                `<ul>${data.insights.map(insight => `<li>${insight}</li>`).join('')}</ul>`;
+            
+            // Display recommendations
+            document.getElementById('recommendationsDisplay').innerHTML = 
+                `<ul>${data.recommendations.map(rec => `<li>${rec}</li>`).join('')}</ul>`;
+            
+            // Display sources
+            document.getElementById('sourcesDisplay').innerHTML = 
+                `<ul>${data.data_sources.map(source => `<li>${source}</li>`).join('')}</ul>`;
         }
 
-        document.getElementById('submitBtn').addEventListener('click', async function() {
-            if (!currentUserId) {
-                alert('Please login first!');
-                return;
-            }
-
-            const userInput = document.getElementById('userInput').value;
-            if (!userInput) {
-                alert('Please enter a question');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('query', userInput);
-            formData.append('user_id', currentUserId);
-
-            document.getElementById('response').innerHTML = '<p>Processing...</p>';
-            try {
-                const response = await fetch('/get_response', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: new URLSearchParams({
-                        'query': userInput,
-                        'user_id': currentUserId
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-
-                const data = await response.json();
-                displayHealthMetrics(data.health_metrics, data.health_analysis);
-                document.getElementById('response').innerHTML = `
-                    <p>${data.answer}</p>
-                    <br>
-                    <pre><b>Context: </b>${data.source_document}</pre>
-                    <br>
-                    <pre><b>Source: </b>${data.doc}</pre>
-                `;
-            } catch (error) {
-                console.error('Error:', error);
-                document.getElementById('response').innerHTML = '<p>Error processing your request</p>';
-            }
-        });
-
-        document.getElementById('queryForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const userId = document.getElementById('userId').value;
-            const query = document.getElementById('userInput').value;
-            
-            if (!userId || !query) {
-                alert('Please provide both User ID and question. See the guide for help.');
-                return;
-            }
-            
-            // ...rest of the form submission code...
-        });
+        function formatMetrics(metrics) {
+            return Object.entries(metrics)
+                .map(([key, value]) => `
+                    <div class="metric-item">
+                        <strong>${key.replace('_', ' ').toUpperCase()}:</strong> ${value}
+                    </div>
+                `).join('');
+        }
     </script>
 </body>
 </html>

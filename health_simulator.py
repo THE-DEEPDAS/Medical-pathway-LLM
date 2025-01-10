@@ -1,83 +1,61 @@
 import random
 from datetime import datetime
-from typing import Dict, Union
 
 class HealthMetricsSimulator:
     @staticmethod
-    def generate_metrics(age_or_profile: Union[int, Dict], gender: str = None):
-        """Generate health metrics based on either age/gender or full profile"""
-        # If first argument is a dictionary, use profile-based generation
-        if isinstance(age_or_profile, dict):
-            return HealthMetricsSimulator._generate_from_profile(age_or_profile)
-        
-        # Create a basic profile for simple age/gender generation
-        profile = {
-            "baseline": {
-                "age": age_or_profile,
-                "gender": gender or "unknown",
-                "height": 170,
-                "weight": 70,
-                "lifestyle": {
-                    "exercise_frequency": "moderate",
-                    "diet_type": "balanced",
-                    "smoking": False,
-                    "alcohol": "none"
-                }
+    def generate_metrics(user_data: dict) -> dict:
+        """Generate real-time health metrics"""
+        try:
+            age = int(user_data.get("age", 30))
+            weight = float(user_data.get("weight", 70))
+            lifestyle = str(user_data.get("lifestyle", "moderate"))
+            medical_conditions = user_data.get("medical_conditions", [])
+
+            # Adjust base metrics based on age, lifestyle and conditions
+            activity_factor = {"sedentary": 1.2, "moderate": 1.0, "active": 0.8}.get(lifestyle, 1.0)
+            condition_factor = 1.0 + (len(medical_conditions) * 0.1)  # Increase variability with conditions
+
+            # Generate base metrics with realistic variations
+            base_hr = 75 - (age // 20)
+            base_systolic = 110 + (age // 5)
+            base_diastolic = 70 + (age // 10)
+
+            metrics = {
+                "heart_rate": max(60, min(100, int(base_hr * activity_factor * condition_factor + random.randint(-5, 5)))),
+                "blood_pressure": f"{base_systolic}/{base_diastolic}",
+                "blood_sugar": random.randint(80, 140),
+                "spo2": random.randint(95, 100),
+                "respiratory_rate": random.randint(12, 20),
+                "body_temperature": round(37 + random.uniform(-0.5, 0.5), 1),
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+            return {
+                "static": {
+                    "height": user_data.get("height"),
+                    "weight": weight,
+                    "age": age,
+                    "lifestyle": lifestyle
+                },
+                "real_time": metrics
+            }
+        except Exception as e:
+            print(f"Error generating metrics: {str(e)}")
+            return HealthMetricsSimulator._get_safe_defaults()
+
+    @staticmethod
+    def _get_safe_defaults() -> dict:
+        return {
+            "static": {"height": 170, "weight": 70, "age": 30},
+            "real_time": {
+                "heart_rate": 75,
+                "blood_pressure": "120/80",
+                "blood_sugar": 100,
+                "spo2": 98,
+                "respiratory_rate": 16,
+                "body_temperature": 37.0,
+                "stress_level": 5,
+                "hydration": 75,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
         }
-        return HealthMetricsSimulator._generate_from_profile(profile)
-
-    @staticmethod
-    def _generate_from_profile(profile: Dict):
-        """Generate metrics based on detailed user profile"""
-        baseline = profile["baseline"]
-        age = baseline["age"]
-        gender = baseline["gender"]
-        weight = baseline.get("weight", 70)
-        lifestyle = baseline.get("lifestyle", {})
-
-        heart_rate_base = 70 if age < 60 else 75
-        heart_rate_variance = 15 if lifestyle.get("exercise_frequency") == "high" else 20
-        
-        metrics = {
-            "heart_rate": random.randint(
-                heart_rate_base - heart_rate_variance,
-                heart_rate_base + heart_rate_variance
-            ),
-            "blood_pressure": f"{random.randint(110, 140)}/{random.randint(70, 90)}",
-            "sleep_hours": round(random.uniform(5.0, 9.0), 1),
-            "calories_burned": HealthMetricsSimulator._calculate_calories(
-                weight, 
-                lifestyle.get("exercise_frequency", "moderate")
-            ),
-            "cholesterol": HealthMetricsSimulator._calculate_cholesterol(
-                age, 
-                lifestyle
-            ),
-            "sleep_quality": random.choice(["Poor", "Fair", "Good", "Excellent"]),
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "bmi": round(weight / ((baseline["height"]/100) ** 2), 1)
-        }
-        
-        return metrics
-
-    @staticmethod
-    def _calculate_calories(weight: float, exercise_frequency: str) -> int:
-        base_calories = weight * 30
-        exercise_multiplier = {
-            "low": 1.0,
-            "moderate": 1.2,
-            "high": 1.4
-        }.get(exercise_frequency, 1.0)
-        return int(base_calories * exercise_multiplier)
-
-    @staticmethod
-    def _calculate_cholesterol(age: int, lifestyle: Dict) -> int:
-        base_cholesterol = 150
-        if age > 40:
-            base_cholesterol += (age - 40) * 1.5
-        if lifestyle["diet_type"] == "unhealthy":
-            base_cholesterol += 30
-        if lifestyle["smoking"]:
-            base_cholesterol += 20
-        return int(base_cholesterol)
