@@ -20,10 +20,20 @@ def ingest_docs():
             encode_kwargs={'normalize_embeddings': True, 'batch_size': 32}
         )
         
+        # Add configuration for Qdrant
+        optimizer_config = {
+            "max_optimization_threads": 4
+        }
+        strict_mode_config = {
+            "enabled": False
+        }
+        
         # Initialize Qdrant client with timeout
         client = QdrantClient(
             url="http://localhost:6333",
-            timeout=600.0  # 10 minutes timeout
+            timeout=600.0,  # 10 minutes timeout
+            optimizer_config=optimizer_config,
+            strict_mode=strict_mode_config
         )
         
         # Create collection with explicit parameters

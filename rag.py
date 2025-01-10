@@ -4,7 +4,7 @@
 from langchain import PromptTemplate
 from langchain.llms import CTransformers
 from langchain.chains import RetrievalQA
-from langchain.embeddings import HuggingFaceEmbeddings  # Changed from SentenceTransformerEmbeddings
+from langchain.embeddings import HuggingFaceEmbeddings
 from fastapi import FastAPI, Request, Form, Response, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -17,14 +17,14 @@ import json
 from health_simulator import HealthMetricsSimulator
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List, Dict
-from ingest import ingest_docs  # Add this at the top with other imports
+from ingest import ingest_docs
 from db.user_store import UserStore
 from models.user import UserProfile
 from datetime import datetime
 import random
 import numpy as np
-from custom_pathway import PathwayAnalyzer  # Add this import
-from langchain.prompts import PromptTemplate  # Fix import warning
+from custom_pathway import PathwayAnalyzer
+from langchain.prompts import PromptTemplate
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -63,15 +63,18 @@ def ensure_model_directory():
         os.makedirs(model_dir)
     return model_dir
 
+# Update the config settings
 config = {
-    'max_new_tokens': 2048,
-    'context_length': 2048,
+    'max_new_tokens': 1024,  # Reduced from 2048
+    'context_length': 1024,  # Reduced from 2048
     'repetition_penalty': 1.1,
-    'temperature': 0.2,
-    'top_k': 50,
-    'top_p': 1,
-    'stream': True,
-    'threads': int(os.cpu_count() / 2)
+    'temperature': 0.1,      # Reduced from 0.2 for more consistent outputs
+    'top_k': 40,            # Reduced from 50
+    'top_p': 0.9,           # Added more focused sampling
+    'stream': False,        # Changed to False to prevent streaming issues
+    'threads': min(4, int(os.cpu_count() / 2)),  # Limit thread count
+    'batch_size': 1,        # Added batch size
+    'n_ctx': 1024          # Added context window size
 }
 
 # Call this before initializing the model
@@ -202,6 +205,10 @@ async def read_root(request: Request):
 class HealthAnalyzer:
     def __init__(self, llm):
         self.llm = llm
+        self.simulation_time = 0
+        self.previous_metrics = {}  # Initialize as empty dict
+        self.cache = {}  # Initialize cache
+        self.current_metrics = None  # Track current metrics
         self.thresholds = {
             'heart_rate': {'low': 60, 'high': 100},
             'blood_pressure': {'systolic': {'low': 90, 'high': 140},
@@ -214,39 +221,84 @@ class HealthAnalyzer:
 
     def analyze(self, user_data: dict) -> dict:
         try:
+            # Generate metrics
             metrics = HealthMetricsSimulator.generate_metrics(user_data)
-            if not metrics or not metrics.get('real_time'):
-                raise ValueError("Failed to generate health metrics")
+            self.current_metrics = metrics['real_time']
+            
+            # Generate analysis
+            analysis = self._generate_analysis(self.current_metrics, self.previous_metrics)
+            
+            # Store current metrics for next comparison
+            self.previous_metrics = self.current_metrics.copy()
 
-            bmi = self.calculate_bmi(user_data['weight'], user_data['height'])
-            bmi_category = self.get_bmi_category(bmi)
-            threshold_analysis = self.analyze_thresholds(metrics['real_time'])
-            
-            # Create analysis context
-            context = self.create_analysis_context(user_data, metrics, bmi, bmi_category, threshold_analysis)
-            
-            # Get analysis with fallback
-            analysis = self.get_llm_analysis(context)
-            
             return {
                 "metrics": metrics['real_time'],
-                "static_data": {
-                    "age": user_data['age'],
-                    "gender": user_data['gender'],
-                    "height": user_data['height'],
-                    "weight": user_data['weight'],
-                    "bmi": round(bmi, 2),
-                    "bmi_category": bmi_category
-                },
+                "static_data": metrics['static'],
                 "analysis": analysis,
-                "threshold_violations": threshold_analysis,
-                "recommendations": self.extract_recommendations(analysis),
+                "threshold_violations": self.analyze_thresholds(metrics['real_time']),
+                "recommendations": self._generate_recommendations(metrics['real_time']),
                 "timestamp": datetime.now().isoformat()
             }
 
         except Exception as e:
             print(f"Analysis error: {str(e)}")
             return self._get_safe_response()
+
+    def _generate_analysis(self, current_metrics: dict, previous_metrics: dict) -> str:
+        try:
+            changes = []
+            violations = self.analyze_thresholds(current_metrics)
+            
+            # Determine overall status
+            status = "All vital signs are within normal ranges" if not violations else \
+                    "Attention needed: " + "; ".join(violations)
+
+            # Compare with previous readings
+            if previous_metrics:
+                for key in ['heart_rate', 'blood_pressure', 'blood_sugar', 'spo2']:
+                    if key in previous_metrics and key in current_metrics:
+                        prev = previous_metrics[key]
+                        curr = current_metrics[key]
+                        if prev != curr:
+                            changes.append(f"- {key.replace('_', ' ').title()}: {prev} → {curr}")
+
+            return f"""
+Time elapsed: {self.simulation_time} seconds
+
+Current Status:
+- {status}
+
+Changes from Previous Reading:
+{chr(10).join(changes) if changes else "- No significant changes"}
+
+Recommendations:
+{self._generate_recommendations(current_metrics)}
+"""
+        except Exception as e:
+            print(f"Error generating analysis: {str(e)}")
+            return self._get_default_analysis()
+
+    def _generate_recommendations(self, metrics: dict) -> str:
+        try:
+            violations = self.analyze_thresholds(metrics)
+            if not violations:
+                return "- Continue monitoring - all parameters are stable"
+
+            recs = []
+            for v in violations:
+                if "blood pressure" in v.lower():
+                    recs.append("- Monitor blood pressure every 5 minutes")
+                elif "heart rate" in v.lower():
+                    recs.append("- Check activity level and stress")
+                elif "spo2" in v.lower():
+                    recs.append("- Verify oxygen saturation reading")
+                else:
+                    recs.append(f"- Monitor {v.split(':')[0].lower()}")
+
+            return "\n".join(recs) if recs else "- Continue regular monitoring"
+        except Exception as e:
+            print(f"Error generating recommendations: {str(e)}")
+            return "- Continue regular monitoring"
 
     def analyze_thresholds(self, metrics: dict) -> List[str]:
         violations = []
@@ -313,82 +365,80 @@ class HealthAnalyzer:
         """
 
     def get_llm_analysis(self, context: str) -> str:
-        """Generate health analysis using LLM"""
         try:
-            prompt = """
-            You are a medical AI assistant. Analyze the following patient data and provide a structured response:
+            if context in self.cache:
+                return self.cache[context]
 
-            {context}
-
-            Provide your analysis in the following format:
-
-            OVERALL HEALTH ASSESSMENT:
-            - [Summary of general health status]
-
-            KEY CONCERNS:
-            - [List each concern]
-
-            RECOMMENDATIONS:
-            - [List specific recommendations]
-
-            MONITORING REQUIREMENTS:
-            - [List what needs to be monitored]
-            """.format(context=context)
-
-            # Set a timeout for LLM response
-            response = self.llm(prompt, max_tokens=1024, temperature=0.7)
+            prompt = self._create_analysis_prompt(context)
             
-            if not response or not isinstance(response, str):
-                return "Error: Invalid response from LLM"
-            
-            # Clean and structure the response
-            cleaned_response = response.strip()
-            if not any(section in cleaned_response for section in 
-                      ["HEALTH ASSESSMENT", "CONCERNS", "RECOMMENDATIONS", "MONITORING"]):
-                return "Error: Incomplete analysis generated"
-            
-            return cleaned_response
-
+            # Add safety checks
+            if not self.llm:
+                return self._get_default_analysis()
+                
+            try:
+                response = self.llm(prompt, max_tokens=256)
+                if not response or not isinstance(response, str):
+                    return self._get_default_analysis()
+                    
+                cleaned_response = response.strip()
+                self.cache[context] = cleaned_response  # Cache the response
+                return cleaned_response
+            except Exception as e:
+                print(f"LLM error: {str(e)}")
+                return self._get_default_analysis()
+                
         except Exception as e:
-            print(f"LLM Analysis error: {str(e)}")
+            print(f"Analysis error: {str(e)}")
             return self._get_default_analysis()
 
-    def _get_default_analysis(self) -> str:
-        """Provide a default analysis when LLM fails"""
-        return """
-        OVERALL HEALTH ASSESSMENT:
-        - Unable to generate detailed analysis
-        
-        KEY CONCERNS:
-        - System unable to process health data
-        
-        RECOMMENDATIONS:
-        - Please consult with a healthcare provider
-        - Consider retrying the analysis
-        
-        MONITORING REQUIREMENTS:
-        - Continue monitoring all vital signs
-        - Report any concerning symptoms to a healthcare provider
-        """
+    def _create_analysis_prompt(self, context: str) -> str:
+        return f"""You are a medical AI assistant monitoring patient vitals in real-time. Time elapsed: {self.simulation_time} seconds.
+
+{context}
+
+Based on the current metrics and their trends, provide a brief natural language analysis:
+
+1. Current Status: Summarize the patient's current state
+2. Changes: Note any significant changes from previous readings
+3. Recommendations: Suggest immediate actions if needed
+4. Next Steps: What to monitor closely in the next 30 seconds
+
+Keep the response conversational and focused on real-time changes."""
+
+    def _verify_response_structure(self, response: str) -> bool:
+        required_sections = [
+            "OVERALL HEALTH ASSESSMENT:",
+            "KEY CONCERNS:",
+            "RECOMMENDATIONS:",
+            "MONITORING REQUIREMENTS:"
+        ]
+        return all(section in response for section in required_sections)
 
     def extract_recommendations(self, analysis: str) -> List[str]:
         try:
-            # Split by newlines and look for recommendation markers
-            lines = analysis.split('\n')
             recommendations = []
-            capturing = False
+            in_recommendations = False
             
-            for line in lines:
-                if 'recommendation' in line.lower() or 'advise' in line.lower():
-                    capturing = True
-                elif capturing and line.strip():
-                    if line.startswith('-') or line.startswith('•'):
-                        recommendations.append(line.strip('- •'))
-                elif capturing and not line.strip():
-                    capturing = False
+            for line in analysis.split('\n'):
+                line = line.strip()
+                
+                if not line:
+                    continue
                     
+                if "RECOMMENDATIONS:" in line:
+                    in_recommendations = True
+                    continue
+                elif "MONITORING REQUIREMENTS:" in line:
+                    break
+                    
+                if in_recommendations and (line.startswith('-') or line.startswith('•')):
+                    recommendation = line.strip('- •').strip()
+                    if recommendation:
+                        recommendations.append(recommendation)
+            
             return recommendations if recommendations else ["No specific recommendations generated"]
-        except:
+        except Exception as e:
+            print(f"Error extracting recommendations: {str(e)}")
             return ["Error extracting recommendations"]
 
     # ...existing code (keep the remaining helper methods)...
@@ -425,6 +475,41 @@ class HealthAnalyzer:
             "recommendations": [],
             "timestamp": datetime.now().isoformat()
         }
+
+    def _get_default_analysis(self) -> str:
+        """Provide a detailed default analysis when LLM fails"""
+        metrics = self.previous_metrics or {}
+        violations = self.analyze_thresholds(metrics)
+        
+        status = "All vital signs are within normal ranges" if not violations else \
+                "Some metrics require attention"
+                
+        return f"""
+Time elapsed: {self.simulation_time} seconds
+
+Current Status:
+- {status}
+{self._format_violations(violations)}
+
+Changes from Previous Reading:
+- Continuing to monitor vital signs
+- No significant changes detected
+
+Recommendations:
+- Continue regular monitoring
+- Maintain current activity level
+- Stay hydrated and well-rested
+
+Next Steps:
+- Monitor vital signs for next 30 seconds
+- Watch for any sudden changes
+- Record any symptoms or concerns
+"""
+
+    def _format_violations(self, violations: List[str]) -> str:
+        if not violations:
+            return "- No health concerns detected"
+        return "\n".join(f"- {v}" for v in violations)
 
 # Add these new route handlers before the existing /analyze_health endpoint
 @app.get("/analyze_health")
@@ -487,3 +572,389 @@ analyzer = HealthAnalyzer(llm)
 
 # Initialize with Fastapi mount for static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Add a background task to refresh the analysis every minute
+from fastapi_utils.tasks import repeat_every
+
+@app.on_event("startup")
+@repeat_every(seconds=30)  # Changed from 60 to 30 seconds
+async def refresh_analysis():
+    try:
+        print("\nStarting new health simulation cycle...")
+        analyzer.simulation_time += 30  # Increment simulation time
+        
+        # Simulate changing health metrics
+        user_data = {
+            "age": 35,
+            "gender": "male",
+            "weight": 75.5,
+            "height": 175,
+            "lifestyle": "moderate",
+            "simulation_time": analyzer.simulation_time
+        }
+        
+        result = analyzer.analyze(user_data)
+        
+        # Print real-time analysis
+        print("\nReal-time Health Analysis:")
+        print("-------------------------")
+        print(f"Time elapsed: {analyzer.simulation_time} seconds")
+        print("Current Metrics:")
+        for key, value in result['metrics'].items():
+            if key != 'timestamp':
+                print(f"  {key}: {value}")
+        print("\nAnalysis:")
+        print(result['analysis'])
+        print("-------------------------\n")
+        
+    except Exception as e:
+        print(f"Error in simulation cycle: {str(e)}")
+
+# ...existing code...
+
+class HealthAnalyzer:
+    def __init__(self, llm):
+        self.llm = llm
+        self.simulation_time = 0  # Add simulation time counter
+        self.previous_metrics = None  # Store previous metrics for comparison
+        self.thresholds = {
+            # ...existing thresholds...
+        }
+
+    def analyze(self, user_data: dict) -> dict:
+        try:
+            # Add simulation time to user data
+            user_data['simulation_time'] = self.simulation_time
+            
+            # Generate metrics
+            metrics = HealthMetricsSimulator.generate_metrics(user_data)
+            
+            # Compare with previous metrics
+            changes = self.compare_metrics(self.previous_metrics, metrics['real_time'])
+            self.previous_metrics = metrics['real_time']
+
+            # Create analysis message
+            analysis = f"""
+Time elapsed: {self.simulation_time} seconds
+
+Current Status:
+- {self.summarize_current_status(metrics['real_time'])}
+
+Changes from Previous Reading:
+{changes}
+
+Recommendations:
+{self.get_recommendations(metrics['real_time'], changes)}
+"""
+
+            return {
+                "metrics": metrics['real_time'],
+                "static_data": {
+                    "age": user_data['age'],
+                    "gender": user_data['gender'],
+                    "height": user_data['height'],
+                    "weight": user_data['weight'],
+                    "simulation_time": self.simulation_time
+                },
+                "analysis": analysis,
+                "threshold_violations": self.analyze_thresholds(metrics['real_time']),
+                "timestamp": datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            print(f"Analysis error: {str(e)}")
+            return self._get_safe_response()
+
+    def compare_metrics(self, prev_metrics: dict, current_metrics: dict) -> str:
+        if not prev_metrics:
+            return "Initial reading - no changes to report."
+        
+        changes = []
+        for key in ['heart_rate', 'blood_pressure', 'blood_sugar', 'spo2']:
+            if key in prev_metrics and key in current_metrics:
+                prev_val = prev_metrics[key]
+                curr_val = current_metrics[key]
+                if prev_val != curr_val:
+                    changes.append(f"- {key.replace('_', ' ').title()}: {prev_val} → {curr_val}")
+        
+        return "\n".join(changes) if changes else "No significant changes"
+
+    def summarize_current_status(self, metrics: dict) -> str:
+        violations = self.analyze_thresholds(metrics)
+        if not violations:
+            return "All vital signs are within normal ranges"
+        return "Attention needed: " + "; ".join(violations)
+
+    def get_recommendations(self, metrics: dict, changes: str) -> str:
+        violations = self.analyze_thresholds(metrics)
+        if not violations:
+            return "Continue monitoring - all parameters are stable"
+        
+        recs = []
+        for violation in violations:
+            if "blood pressure" in violation.lower():
+                recs.append("Monitor blood pressure closely")
+            elif "heart rate" in violation.lower():
+                recs.append("Check physical activity and stress levels")
+            # Add more specific recommendations...
+        
+        return "\n".join(recs) if recs else "No specific recommendations at this time"
+
+# ...existing code...
+
+@app.on_event("startup")
+@repeat_every(seconds=30)
+async def refresh_analysis():
+    try:
+        print("\n=== Health Simulation Update ===")
+        analyzer.simulation_time += 30
+        
+        user_data = {
+            "age": 35,
+            "gender": "male",
+            "weight": 75.5,
+            "height": 175,
+            "lifestyle": "moderate"
+        }
+        
+        result = analyzer.analyze(user_data)
+        
+        print(f"\nTime Elapsed: {analyzer.simulation_time} seconds")
+        print("\nCurrent Metrics:")
+        for key, value in result['metrics'].items():
+            if key != 'timestamp':
+                print(f"  {key}: {value}")
+        
+        print("\nAnalysis:")
+        print(result['analysis'])
+        print("\n" + "="*30 + "\n")
+        
+    except Exception as e:
+        print(f"Simulation Error: {str(e)}")
+
+# ...existing code...
+
+class HealthAnalyzer:
+    def __init__(self, llm):
+        self.llm = llm
+        self.simulation_time = 0
+        self.previous_metrics = None
+        self.cache = {}  # Add cache for storing previous analyses
+
+    def analyze(self, user_data: dict) -> dict:
+        try:
+            metrics = HealthMetricsSimulator.generate_metrics(user_data)
+            
+            # Generate simple analysis without LLM
+            analysis = self.generate_simple_analysis(metrics['real_time'], self.previous_metrics)
+            self.previous_metrics = metrics['real_time']
+
+            return {
+                "metrics": metrics['real_time'],
+                "static_data": metrics['static'],
+                "analysis": analysis,
+                "threshold_violations": self.analyze_thresholds(metrics['real_time']),
+                "recommendations": self.generate_recommendations(metrics['real_time']),
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            print(f"Analysis error: {str(e)}")
+            return self._get_safe_response()
+
+    def generate_simple_analysis(self, current_metrics: dict, previous_metrics: dict) -> str:
+        changes = []
+        status_msg = "All vital signs are within normal limits."
+        
+        violations = self.analyze_thresholds(current_metrics)
+        if violations:
+            status_msg = "Attention needed: " + "; ".join(violations)
+
+        if previous_metrics:
+            for key in ['heart_rate', 'blood_pressure', 'blood_sugar', 'spo2']:
+                if key in previous_metrics and key in current_metrics:
+                    prev = previous_metrics[key]
+                    curr = current_metrics[key]
+                    if prev != curr:
+                        changes.append(f"{key.replace('_', ' ').title()}: {prev} → {curr}")
+
+        return f"""
+Time elapsed: {self.simulation_time} seconds
+
+Current Status:
+{status_msg}
+
+Changes from Previous Reading:
+{chr(10).join(changes) if changes else "No significant changes"}
+
+Recommendations:
+{self.generate_recommendations(current_metrics)}
+"""
+
+    def generate_recommendations(self, metrics: dict) -> str:
+        violations = self.analyze_thresholds(metrics)
+        recs = []
+        
+        if not violations:
+            return "- Continue monitoring - all parameters are stable"
+            
+        for v in violations:
+            if "blood pressure" in v.lower():
+                recs.append("- Check blood pressure again in 5 minutes")
+            elif "heart rate" in v.lower():
+                recs.append("- Monitor heart rate closely")
+            elif "spo2" in v.lower():
+                recs.append("- Check oxygen saturation")
+                
+        if not recs:
+            recs.append("- Continue regular monitoring")
+            
+        return "\n".join(recs)
+
+# ...existing code...
+
+@app.on_event("startup")
+@repeat_every(seconds=30)
+async def refresh_analysis():
+    try:
+        print("\n=== Health Simulation Update ===")
+        analyzer.simulation_time += 30
+        
+        user_data = {
+            "age": 35,
+            "gender": "male",
+            "weight": 75.5,
+            "height": 175,
+            "lifestyle": "moderate",
+            "simulation_time": analyzer.simulation_time
+        }
+        
+        result = analyzer.analyze(user_data)
+        
+        # Print formatted output
+        print(f"\nTime Elapsed: {analyzer.simulation_time} seconds")
+        print("\nCurrent Metrics:")
+        for key, value in result['metrics'].items():
+            if key != 'timestamp':
+                print(f"  {key}: {value}")
+        
+        print("\nAnalysis:")
+        print(result['analysis'])
+        print("\n" + "="*30)
+        
+    except Exception as e:
+        print(f"Simulation Error: {str(e)}")
+
+# ...existing code...
+
+class HealthAnalyzer:
+    def __init__(self, llm):
+        self.llm = llm
+        self.simulation_time = 0
+        self.previous_metrics = None
+        self.thresholds = {
+            # ...existing thresholds...
+        }
+
+    def analyze(self, user_data: dict) -> dict:
+        try:
+            # Generate metrics
+            metrics = HealthMetricsSimulator.generate_metrics(user_data)
+            
+            # Generate analysis without LLM
+            analysis = self._generate_analysis(metrics['real_time'], self.previous_metrics)
+            self.previous_metrics = metrics['real_time'].copy()
+
+            return {
+                "metrics": metrics['real_time'],
+                "static_data": metrics['static'],
+                "analysis": analysis,
+                "threshold_violations": self.analyze_thresholds(metrics['real_time']),
+                "recommendations": self._generate_recommendations(metrics['real_time']),
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            print(f"Analysis error: {str(e)}")
+            return self._get_safe_response()
+
+    def _generate_analysis(self, current_metrics: dict, previous_metrics: dict) -> str:
+        changes = []
+        
+        # Get violations and status
+        violations = self.analyze_thresholds(current_metrics)
+        status = "All vital signs are within normal ranges" if not violations else \
+                "Attention needed: " + "; ".join(violations)
+
+        # Compare with previous readings
+        if previous_metrics:
+            for key in ['heart_rate', 'blood_pressure', 'blood_sugar', 'spo2']:
+                if key in previous_metrics and key in current_metrics:
+                    prev = previous_metrics[key]
+                    curr = current_metrics[key]
+                    if prev != curr:
+                        changes.append(f"- {key.replace('_', ' ').title()}: {prev} → {curr}")
+
+        return f"""
+Time elapsed: {self.simulation_time} seconds
+
+Current Status:
+- {status}
+
+Changes from Previous Reading:
+{chr(10).join(changes) if changes else "- No significant changes"}
+
+Recommendations:
+{self._generate_recommendations(current_metrics)}
+"""
+
+    def _generate_recommendations(self, metrics: dict) -> str:
+        violations = self.analyze_thresholds(metrics)
+        if not violations:
+            return "- Continue monitoring - all parameters are stable"
+
+        recs = []
+        for v in violations:
+            if "blood pressure" in v.lower():
+                recs.append("- Monitor blood pressure every 5 minutes")
+            elif "heart rate" in v.lower():
+                recs.append("- Check activity level and stress")
+            elif "spo2" in v.lower():
+                recs.append("- Verify oxygen saturation reading")
+            else:
+                recs.append(f"- Monitor {v.split(':')[0].lower()}")
+
+        return "\n".join(recs) if recs else "- Continue regular monitoring"
+
+# ...existing code...
+
+@app.on_event("startup")
+@repeat_every(seconds=30)
+async def refresh_analysis():
+    try:
+        analyzer.simulation_time += 30
+        
+        user_data = {
+            "age": 35,
+            "gender": "male",
+            "weight": 75.5,
+            "height": 175,
+            "lifestyle": "moderate",
+            "simulation_time": analyzer.simulation_time
+        }
+        
+        result = analyzer.analyze(user_data)
+        
+        # Print formatted output
+        print("\n=== Health Simulation Update ===")
+        print(f"Time Elapsed: {analyzer.simulation_time} seconds")
+        print("\nCurrent Metrics:")
+        for key, value in result['metrics'].items():
+            if key != 'timestamp':
+                print(f"  {key}: {value}")
+        print("\nAnalysis:")
+        print(result['analysis'])
+        print("=" * 50)
+        
+    except Exception as e:
+        print(f"Simulation Error: {str(e)}")
+
+# ...existing code...

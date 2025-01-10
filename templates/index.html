@@ -44,8 +44,8 @@
                     <select id="lifestyle" class="form-control" required>
                         <option value="">Select Lifestyle</option>
                         <option value="sedentary">Sedentary</option>
+                        <option value="moderate">Moderate</option>
                         <option value="active">Active</option>
-                        <option value="very_active">Very Active</option>
                     </select>
                 </div>
             </div>
@@ -85,8 +85,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        let currentUserId = null;
-
         document.getElementById('healthForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = {
@@ -103,6 +101,10 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData)
                 });
+
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
 
                 const data = await response.json();
                 displayResults(data);
@@ -123,7 +125,7 @@
             
             // Display insights
             document.getElementById('insightsDisplay').innerHTML = 
-                `<ul>${data.insights.map(insight => `<li>${insight}</li>`).join('')}</ul>`;
+                `<ul>${data.threshold_violations.map(insight => `<li>${insight}</li>`).join('')}</ul>`;
             
             // Display recommendations
             document.getElementById('recommendationsDisplay').innerHTML = 
@@ -131,7 +133,7 @@
             
             // Display sources
             document.getElementById('sourcesDisplay').innerHTML = 
-                `<ul>${data.data_sources.map(source => `<li>${source}</li>`).join('')}</ul>`;
+                `<ul>${data.data_sources ? data.data_sources.map(source => `<li>${source}</li>`).join('') : 'No sources available'}</ul>`;
         }
 
         function formatMetrics(metrics) {
