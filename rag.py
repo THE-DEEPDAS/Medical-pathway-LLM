@@ -214,25 +214,20 @@ class HealthAnalyzer:
 
     def analyze(self, user_data: dict) -> dict:
         try:
-            # Get simulated metrics
             metrics = HealthMetricsSimulator.generate_metrics(user_data)
-            
-            # Calculate health indicators
+            if not metrics or not metrics.get('real_time'):
+                raise ValueError("Failed to generate health metrics")
+
             bmi = self.calculate_bmi(user_data['weight'], user_data['height'])
             bmi_category = self.get_bmi_category(bmi)
-            
-            # Analyze metrics against thresholds
             threshold_analysis = self.analyze_thresholds(metrics['real_time'])
             
-            # Format metrics for prompt
-            formatted_metrics = self.format_metrics(metrics['real_time'])
-            
-            # Create context from user data and metrics
+            # Create analysis context
             context = self.create_analysis_context(user_data, metrics, bmi, bmi_category, threshold_analysis)
             
-            # Get analysis from LLM
+            # Get analysis with fallback
             analysis = self.get_llm_analysis(context)
-
+            
             return {
                 "metrics": metrics['real_time'],
                 "static_data": {
@@ -250,38 +245,49 @@ class HealthAnalyzer:
             }
 
         except Exception as e:
-            print(f"Error in analysis: {str(e)}")
+            print(f"Analysis error: {str(e)}")
             return self._get_safe_response()
 
     def analyze_thresholds(self, metrics: dict) -> List[str]:
         violations = []
         
-        for metric, value in metrics.items():
-            if metric == 'blood_pressure':
-                try:
-                    systolic, diastolic = map(int, value.split('/'))
-                    if systolic > self.thresholds['blood_pressure']['systolic']['high']:
-                        violations.append(f"High systolic blood pressure: {systolic} mmHg")
-                    elif systolic < self.thresholds['blood_pressure']['systolic']['low']:
-                        violations.append(f"Low systolic blood pressure: {systolic} mmHg")
+        try:
+            # Handle blood pressure separately
+            if 'blood_pressure' in metrics:
+                bp = metrics['blood_pressure']
+                if isinstance(bp, str) and '/' in bp:
+                    try:
+                        systolic, diastolic = map(int, bp.split('/'))
+                        if systolic > self.thresholds['blood_pressure']['systolic']['high']:
+                            violations.append(f"High systolic blood pressure: {systolic} mmHg")
+                        elif systolic < self.thresholds['blood_pressure']['systolic']['low']:
+                            violations.append(f"Low systolic blood pressure: {systolic} mmHg")
+                        
+                        if diastolic > self.thresholds['blood_pressure']['diastolic']['high']:
+                            violations.append(f"High diastolic blood pressure: {diastolic} mmHg")
+                        elif diastolic < self.thresholds['blood_pressure']['diastolic']['low']:
+                            violations.append(f"Low diastolic blood pressure: {diastolic} mmHg")
+                    except ValueError:
+                        violations.append("Invalid blood pressure format")
+
+            # Handle other metrics
+            for metric, value in metrics.items():
+                if metric == 'blood_pressure' or metric == 'timestamp':
+                    continue
                     
-                    if diastolic > self.thresholds['blood_pressure']['diastolic']['high']:
-                        violations.append(f"High diastolic blood pressure: {diastolic} mmHg")
-                    elif diastolic < self.thresholds['blood_pressure']['diastolic']['low']:
-                        violations.append(f"Low diastolic blood pressure: {diastolic} mmHg")
-                except:
-                    violations.append("Invalid blood pressure format")
-                continue
-                
-            if metric in self.thresholds:
-                try:
-                    if isinstance(value, (int, float)):
+                if metric in self.thresholds:
+                    try:
+                        value = float(value)
                         if value < self.thresholds[metric]['low']:
                             violations.append(f"Low {metric.replace('_', ' ')}: {value}")
                         elif value > self.thresholds[metric]['high']:
                             violations.append(f"High {metric.replace('_', ' ')}: {value}")
-                except:
-                    continue
+                    except (ValueError, TypeError):
+                        continue
+
+        except Exception as e:
+            print(f"Error in analyze_thresholds: {str(e)}")
+            violations.append("Error analyzing health metrics")
 
         return violations
 
@@ -307,23 +313,63 @@ class HealthAnalyzer:
         """
 
     def get_llm_analysis(self, context: str) -> str:
-        prompt = f"""
-        As a healthcare AI assistant, analyze the following patient data and provide:
-        1. Overall health assessment
-        2. Key concerns and risks
-        3. Specific recommendations for improvement
-        4. Monitoring requirements
-
-        {context}
-
-        Please provide a detailed but concise analysis:
-        """
-        
+        """Generate health analysis using LLM"""
         try:
-            return self.llm(prompt)
+            prompt = """
+            You are a medical AI assistant. Analyze the following patient data and provide a structured response:
+
+            {context}
+
+            Provide your analysis in the following format:
+
+            OVERALL HEALTH ASSESSMENT:
+            - [Summary of general health status]
+
+            KEY CONCERNS:
+            - [List each concern]
+
+            RECOMMENDATIONS:
+            - [List specific recommendations]
+
+            MONITORING REQUIREMENTS:
+            - [List what needs to be monitored]
+            """.format(context=context)
+
+            # Set a timeout for LLM response
+            response = self.llm(prompt, max_tokens=1024, temperature=0.7)
+            
+            if not response or not isinstance(response, str):
+                return "Error: Invalid response from LLM"
+            
+            # Clean and structure the response
+            cleaned_response = response.strip()
+            if not any(section in cleaned_response for section in 
+                      ["HEALTH ASSESSMENT", "CONCERNS", "RECOMMENDATIONS", "MONITORING"]):
+                return "Error: Incomplete analysis generated"
+            
+            return cleaned_response
+
         except Exception as e:
             print(f"LLM Analysis error: {str(e)}")
-            return "Error generating analysis"
+            return self._get_default_analysis()
+
+    def _get_default_analysis(self) -> str:
+        """Provide a default analysis when LLM fails"""
+        return """
+        OVERALL HEALTH ASSESSMENT:
+        - Unable to generate detailed analysis
+        
+        KEY CONCERNS:
+        - System unable to process health data
+        
+        RECOMMENDATIONS:
+        - Please consult with a healthcare provider
+        - Consider retrying the analysis
+        
+        MONITORING REQUIREMENTS:
+        - Continue monitoring all vital signs
+        - Report any concerning symptoms to a healthcare provider
+        """
 
     def extract_recommendations(self, analysis: str) -> List[str]:
         try:
