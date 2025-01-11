@@ -80,24 +80,41 @@ config = {
 # Call this before initializing the model
 ensure_model_directory()
 
-try:
-    model_path = get_model_path()
-    llm = CTransformers(
-        model=model_path,
-        model_type="mistral",
-        lib="avx2",
-        **config
-    )
-    print("LLM Initialized successfully...")
-except Exception as e:
-    print(f"Error initializing LLM: {e}")
-    print("\nPlease follow these steps:")
-    print("1. Create a 'models' directory in your project")
-    print("2. Download the model from: https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.1-GGUF")
-    print("3. Place the downloaded file in the models directory")
-    raise
+# Add improved error handling and retries for LLM
+class LLMWrapper:
+    def __init__(self, model_path, config):
+        self.model_path = model_path
+        self.config = config
+        self.retries = 3
+        self.llm = None
+        self.initialize_llm()
 
-print("LLM Initialized....")
+    def initialize_llm(self):
+        for attempt in range(self.retries):
+            try:
+                self.llm = CTransformers(
+                    model=self.model_path,
+                    model_type="mistral",
+                    lib="avx2",
+                    **self.config
+                )
+                return
+            except Exception as e:
+                print(f"Attempt {attempt + 1} failed: {e}")
+                if attempt == self.retries - 1:
+                    raise
+
+    def __call__(self, *args, **kwargs):
+        for attempt in range(self.retries):
+            try:
+                return self.llm(*args, **kwargs)
+            except Exception as e:
+                print(f"LLM call attempt {attempt + 1} failed: {e}")
+                if attempt == self.retries - 1:
+                    raise
+
+# Add after the config definition
+llm = LLMWrapper(get_model_path(), config)
 
 # Replace the embeddings initialization with:
 try:
@@ -202,6 +219,45 @@ qa = RetrievalQA.from_chain_type(
 async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+class HealthTrend:
+    def __init__(self, window_size=5):
+        self.window_size = window_size
+        self.metrics_history = []
+        
+    def add_metrics(self, metrics):
+        self.metrics_history.append(metrics)
+        if len(self.metrics_history) > self.window_size:
+            self.metrics_history.pop(0)
+            
+    def analyze_trends(self):
+        if len(self.metrics_history) < 2:
+            return "Insufficient data for trend analysis"
+            
+        trends = {}
+        for key in ['heart_rate', 'blood_sugar', 'spo2']:
+            values = [m.get(key) for m in self.metrics_history if key in m]
+            if len(values) >= 2:
+                trend = self._calculate_trend(values)
+                trends[key] = trend
+                
+        return self._format_trends(trends)
+    
+    def _calculate_trend(self, values):
+        try:
+            values = [float(v) for v in values]
+            first, last = values[0], values[-1]
+            change = ((last - first) / first) * 100
+            if abs(change) < 2:
+                return "stable"
+            return "increasing" if change > 0 else "decreasing"
+        except:
+            return "unknown"
+            
+    def _format_trends(self, trends):
+        return "\n".join([f"- {k.replace('_', ' ').title()}: {v}" 
+                         for k, v in trends.items()])
+
+# Modify HealthAnalyzer class to include trends
 class HealthAnalyzer:
     def __init__(self, llm):
         self.llm = llm
@@ -218,87 +274,123 @@ class HealthAnalyzer:
             'respiratory_rate': {'low': 12, 'high': 20},
             'body_temperature': {'low': 36.5, 'high': 37.5}
         }
-
+        self.trends = HealthTrend()
+        self.alert_history = []
+        self.risk_scores = {}
+        
     def analyze(self, user_data: dict) -> dict:
         try:
-            # Generate metrics
             metrics = HealthMetricsSimulator.generate_metrics(user_data)
-            self.current_metrics = metrics['real_time']
+            self.trends.add_metrics(metrics['real_time'])
             
-            # Generate analysis
-            analysis = self._generate_analysis(self.current_metrics, self.previous_metrics)
+            # Calculate risk scores
+            risk_score = self._calculate_risk_score(metrics['real_time'])
+            self.risk_scores[datetime.now()] = risk_score
             
-            # Store current metrics for next comparison
-            self.previous_metrics = self.current_metrics.copy()
-
+            # Generate enhanced analysis
+            analysis = self._generate_enhanced_analysis(
+                metrics['real_time'],
+                self.previous_metrics,
+                risk_score
+            )
+            
+            self.previous_metrics = metrics['real_time'].copy()
+            
             return {
                 "metrics": metrics['real_time'],
                 "static_data": metrics['static'],
                 "analysis": analysis,
                 "threshold_violations": self.analyze_thresholds(metrics['real_time']),
-                "recommendations": self._generate_recommendations(metrics['real_time']),
+                "recommendations": self._generate_detailed_recommendations(
+                    metrics['real_time'],
+                    risk_score
+                ),
+                "risk_score": risk_score,
+                "trends": self.trends.analyze_trends(),
                 "timestamp": datetime.now().isoformat()
             }
-
         except Exception as e:
             print(f"Analysis error: {str(e)}")
             return self._get_safe_response()
 
-    def _generate_analysis(self, current_metrics: dict, previous_metrics: dict) -> str:
+    def _calculate_risk_score(self, metrics: dict) -> float:
         try:
-            changes = []
-            violations = self.analyze_thresholds(current_metrics)
-            
-            # Determine overall status
-            status = "All vital signs are within normal ranges" if not violations else \
-                    "Attention needed: " + "; ".join(violations)
-
-            # Compare with previous readings
-            if previous_metrics:
-                for key in ['heart_rate', 'blood_pressure', 'blood_sugar', 'spo2']:
-                    if key in previous_metrics and key in current_metrics:
-                        prev = previous_metrics[key]
-                        curr = current_metrics[key]
-                        if prev != curr:
-                            changes.append(f"- {key.replace('_', ' ').title()}: {prev} → {curr}")
-
-            return f"""
-Time elapsed: {self.simulation_time} seconds
-
-Current Status:
-- {status}
-
-Changes from Previous Reading:
-{chr(10).join(changes) if changes else "- No significant changes"}
-
-Recommendations:
-{self._generate_recommendations(current_metrics)}
-"""
-        except Exception as e:
-            print(f"Error generating analysis: {str(e)}")
-            return self._get_default_analysis()
-
-    def _generate_recommendations(self, metrics: dict) -> str:
-        try:
+            score = 0.0
             violations = self.analyze_thresholds(metrics)
-            if not violations:
-                return "- Continue monitoring - all parameters are stable"
+            
+            # Base score from violations
+            score += len(violations) * 10
+            
+            # Check specific metrics
+            if 'heart_rate' in metrics:
+                hr = float(metrics['heart_rate'])
+                if hr > 120 or hr < 50:
+                    score += 20
+                elif hr > 100 or hr < 60:
+                    score += 10
+                    
+            if 'blood_pressure' in metrics:
+                try:
+                    sys, dia = map(int, metrics['blood_pressure'].split('/'))
+                    if sys > 180 or dia > 120:
+                        score += 30
+                    elif sys > 140 or dia > 90:
+                        score += 15
+                except:
+                    pass
+                    
+            if 'spo2' in metrics:
+                spo2 = float(metrics['spo2'])
+                if spo2 < 90:
+                    score += 40
+                elif spo2 < 95:
+                    score += 20
+                    
+            return min(100, score)
+        except:
+            return 0.0
 
-            recs = []
-            for v in violations:
-                if "blood pressure" in v.lower():
-                    recs.append("- Monitor blood pressure every 5 minutes")
-                elif "heart rate" in v.lower():
-                    recs.append("- Check activity level and stress")
-                elif "spo2" in v.lower():
-                    recs.append("- Verify oxygen saturation reading")
-                else:
-                    recs.append(f"- Monitor {v.split(':')[0].lower()}")
+    def _generate_detailed_recommendations(self, metrics: dict, risk_score: float) -> str:
+        basic_recs = self._generate_recommendations(metrics)
+        
+        # Add risk-based recommendations
+        risk_recs = []
+        if risk_score >= 70:
+            risk_recs.extend([
+                "- Immediate medical attention recommended",
+                "- Contact healthcare provider urgently",
+                "- Prepare for possible emergency response"
+            ])
+        elif risk_score >= 40:
+            risk_recs.extend([
+                "- Schedule urgent medical consultation",
+                "- Increase monitoring frequency",
+                "- Review medication compliance"
+            ])
+        elif risk_score >= 20:
+            risk_recs.extend([
+                "- Schedule routine check-up",
+                "- Monitor trends closely",
+                "- Review lifestyle factors"
+            ])
+            
+        lifestyle_recs = [
+            "- Maintain regular sleep schedule",
+            "- Stay hydrated",
+            "- Practice stress management",
+            "- Ensure regular physical activity as appropriate",
+            "- Follow balanced nutrition plan"
+        ]
+            
+        return f"""Basic Recommendations:
+{basic_recs}
 
-            return "\n".join(recs) if recs else "- Continue regular monitoring"
-        except Exception as e:
-            print(f"Error generating recommendations: {str(e)}")
-            return "- Continue regular monitoring"
+Risk-Based Actions:
+{chr(10).join(risk_recs)}
+
+Lifestyle Recommendations:
+{chr(10).join(lifestyle_recs)}
+"""
 
     def analyze_thresholds(self, metrics: dict) -> List[str]:
         violations = []
@@ -956,5 +1048,35 @@ async def refresh_analysis():
         
     except Exception as e:
         print(f"Simulation Error: {str(e)}")
+
+# Add enhanced error handling for API endpoints
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    error_msg = str(exc)
+    print(f"Error: {error_msg}")
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error", "detail": error_msg}
+    )
+
+# Add health check endpoint
+@app.get("/health")
+async def health_check():
+    try:
+        # Test LLM
+        llm("Test prompt", max_tokens=10)
+        
+        # Test vector store
+        db.similarity_search("test", k=1)
+        
+        return {"status": "healthy", "components": {
+            "llm": "operational",
+            "vector_store": "operational"
+        }}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "unhealthy", "error": str(e)}
+        )
 
 # ...existing code...

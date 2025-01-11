@@ -85,6 +85,25 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Response templates for variety
+        const responseTemplates = {
+            normal: {
+                title: "Everything looks good",
+                style: "text-success",
+                icon: "✓"
+            },
+            warning: {
+                title: "Some metrics need attention",
+                style: "text-warning",
+                icon: "⚠"
+            },
+            critical: {
+                title: "Immediate attention required",
+                style: "text-danger",
+                icon: "⚡"
+            }
+        };
+
         document.getElementById('healthForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = {
@@ -116,33 +135,194 @@
         });
 
         function displayResults(data) {
+            // Show results containers
             document.getElementById('results').style.display = 'block';
-            document.getElementById('metricsDisplay').innerHTML = formatMetrics(data.metrics);
-            document.getElementById('analysisDisplay').innerHTML = data.analysis;
+            document.getElementById('analysisResults').style.display = 'block';
             
-            // Display metrics
-            document.getElementById('metricsDisplay').innerHTML = formatMetrics(data.metrics);
+            // Clear previous error messages
+            document.getElementById('errorAlert').style.display = 'none';
             
-            // Display insights
-            document.getElementById('insightsDisplay').innerHTML = 
-                `<ul>${data.threshold_violations.map(insight => `<li>${insight}</li>`).join('')}</ul>`;
-            
-            // Display recommendations
-            document.getElementById('recommendationsDisplay').innerHTML = 
-                `<ul>${data.recommendations.map(rec => `<li>${rec}</li>`).join('')}</ul>`;
-            
-            // Display sources
-            document.getElementById('sourcesDisplay').innerHTML = 
-                `<ul>${data.data_sources ? data.data_sources.map(source => `<li>${source}</li>`).join('') : 'No sources available'}</ul>`;
+            try {
+                // Display metrics with dynamic styling
+                const metricsHtml = formatMetrics(data.metrics);
+                document.getElementById('metricsDisplay').innerHTML = metricsHtml;
+
+                // Display insights with variety
+                const insightsHtml = formatInsights(data.threshold_violations);
+                document.getElementById('insightsDisplay').innerHTML = insightsHtml;
+
+                // Display analysis with dynamic template
+                const analysisHtml = formatAnalysis(data.analysis);
+                document.getElementById('analysisDisplay').innerHTML = analysisHtml;
+
+                // Display recommendations safely
+                const recommendationsHtml = formatRecommendations(data.recommendations);
+                document.getElementById('recommendationsDisplay').innerHTML = recommendationsHtml;
+
+                // Display sources
+                const sourcesHtml = formatSources(data.data_sources);
+                document.getElementById('sourcesDisplay').innerHTML = sourcesHtml;
+
+            } catch (error) {
+                console.error('Display error:', error);
+                document.getElementById('errorAlert').style.display = 'block';
+                document.getElementById('errorAlert').textContent = `Error displaying results: ${error.message}`;
+            }
+        }
+
+        function formatInsights(violations) {
+            if (!violations) return '<div class="alert alert-info">No insights available</div>';
+
+            const severity = violations.length > 2 ? 'critical' : violations.length > 0 ? 'warning' : 'normal';
+            const template = responseTemplates[severity];
+
+            return `
+                <div class="alert alert-${severity === 'normal' ? 'success' : severity === 'warning' ? 'warning' : 'danger'}">
+                    <h5>${template.icon} ${template.title}</h5>
+                    <ul class="mb-0">
+                        ${Array.isArray(violations) ? 
+                            violations.map(insight => `<li>${insight}</li>`).join('') :
+                            '<li>No specific insights available</li>'}
+                    </ul>
+                </div>
+            `;
+        }
+
+        function formatAnalysis(analysis) {
+            if (!analysis) return '<div class="alert alert-info">No analysis available</div>';
+
+            // Generate random response type for variety
+            const types = ['normal', 'warning', 'critical'];
+            const randomType = types[Math.floor(Math.random() * types.length)];
+            const template = responseTemplates[randomType];
+
+            return `
+                <div class="card">
+                    <div class="card-header ${template.style}">
+                        ${template.icon} Analysis Results
+                    </div>
+                    <div class="card-body">
+                        ${analysis}
+                    </div>
+                </div>
+            `;
+        }
+
+        function formatRecommendations(recommendations) {
+            try {
+                if (!recommendations) {
+                    return '<div class="alert alert-info">No recommendations available</div>';
+                }
+
+                // Convert recommendations to array format
+                let recArray = [];
+                
+                if (Array.isArray(recommendations)) {
+                    recArray = recommendations;
+                } else if (typeof recommendations === 'string') {
+                    // Split string by newlines or bullet points
+                    recArray = recommendations
+                        .split(/[\n•-]/)
+                        .map(item => item.trim())
+                        .filter(item => item.length > 0);
+                } else if (typeof recommendations === 'object') {
+                    // Handle object format
+                    recArray = Object.values(recommendations)
+                        .filter(item => item && typeof item === 'string');
+                }
+
+                // If still no valid recommendations, return default message
+                if (!recArray.length) {
+                    return '<div class="alert alert-info">No specific recommendations available</div>';
+                }
+
+                // Determine severity based on number of recommendations
+                const severity = recArray.length > 3 ? 'critical' : 
+                               recArray.length > 1 ? 'warning' : 'normal';
+                const template = responseTemplates[severity];
+
+                // Format recommendations with error handling
+                const recItems = recArray
+                    .map(rec => {
+                        try {
+                            return `<li class="list-group-item">${String(rec)}</li>`;
+                        } catch (e) {
+                            console.error('Error formatting recommendation:', e);
+                            return '';
+                        }
+                    })
+                    .filter(item => item)
+                    .join('');
+
+                return `
+                    <div class="card border-${severity === 'normal' ? 'success' : 
+                                          severity === 'warning' ? 'warning' : 'danger'}">
+                        <div class="card-header ${template.style}">
+                            ${template.icon} Health Recommendations
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-group list-group-flush">
+                                ${recItems || '<li class="list-group-item">Continue regular monitoring</li>'}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Recommendations formatting error:', error);
+                return `
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Unable to display recommendations. Please try again.
+                    </div>
+                `;
+            }
         }
 
         function formatMetrics(metrics) {
-            return Object.entries(metrics)
-                .map(([key, value]) => `
-                    <div class="metric-item">
-                        <strong>${key.replace('_', ' ').toUpperCase()}:</strong> ${value}
+            if (!metrics || typeof metrics !== 'object') {
+                return '<div class="alert alert-warning">No metrics available</div>';
+            }
+
+            return `
+                <div class="card">
+                    <div class="card-body">
+                        <div class="row">
+                            ${Object.entries(metrics).map(([key, value]) => `
+                                <div class="col-md-6 mb-3">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h6 class="card-subtitle mb-2 text-muted">
+                                                ${key.replace(/_/g, ' ').toUpperCase()}
+                                            </h6>
+                                            <p class="card-text h4">${value}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
                     </div>
-                `).join('');
+                </div>
+            `;
+        }
+
+        function formatSources(sources) {
+            if (!sources) {
+                return '<div class="alert alert-info">No sources available</div>';
+            }
+
+            const items = Array.isArray(sources) ? sources : [sources];
+
+            return `
+                <div class="card">
+                    <div class="card-body">
+                        <ul class="list-group list-group-flush">
+                            ${items.map(source => `
+                                <li class="list-group-item">${source}</li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                </div>
+            `;
         }
     </script>
 </body>
