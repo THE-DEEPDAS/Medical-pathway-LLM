@@ -2,6 +2,8 @@
 
 A comprehensive healthcare monitoring solution that integrates Retrieval-Augmented Generation (RAG), dynamic vital signs simulation, and real-time analysis using locally deployed Large Language Models. The system employs advanced time-series analysis and medical domain-specific contextual awareness to provide evidence-based health assessments.
 
+Repo Link: https://github.com/THE-DEEPDAS/Medical-pathway-LLM
+
 ## Documentation
 The documentation for the whole project: https://drive.google.com/file/d/1EGWcIiWDv9Lu-lV_HagzjyneN3ul9VPy/view?usp=drivesdk
 
