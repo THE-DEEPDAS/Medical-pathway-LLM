@@ -1,7 +1,7 @@
 import os
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import Qdrant
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Qdrant
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from pypdf import PdfReader
 from langchain.docstore.document import Document
 from qdrant_client import QdrantClient
