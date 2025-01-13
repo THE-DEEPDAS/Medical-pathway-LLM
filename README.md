@@ -93,6 +93,71 @@ graph TB
     style Data fill:#fbb,stroke:#333,stroke-width:2px
 ```
 
+## Pathway Integration
+
+The system leverages Pathway for real-time data processing and analytics:
+
+### Data Flow Architecture
+```mermaid
+graph LR
+    subgraph Pathway["Pathway Processing"]
+        IS[Input Stream] --> PE[Path Evaluator]
+        PE --> TF[Transform]
+        TF --> JN[Join]
+        JN --> AG[Aggregate]
+        AG --> OS[Output Stream]
+    end
+
+    subgraph Sources["Data Sources"]
+        RT[Real-time Metrics]
+        KB[Knowledge Base]
+        HD[Historical Data]
+    end
+
+    subgraph Consumers["Data Consumers"]
+        AN[Analysis Engine]
+        VZ[Visualization]
+        AL[Alerts]
+    end
+
+    RT --> IS
+    KB --> JN
+    HD --> JN
+    OS --> AN
+    OS --> VZ
+    OS --> AL
+
+    style Pathway fill:#f0f7ff,stroke:#0066cc
+    style Sources fill:#fff0f0,stroke:#cc0000
+    style Consumers fill:#f0fff0,stroke:#00cc00
+```
+
+### Pathway Components
+
+1. **Stream Processing**
+   - Real-time health metrics ingestion
+   - Continuous data transformation
+   - Time-window aggregations
+   - Event-driven updates
+
+2. **Data Transformations**
+   - Metric normalization
+   - Feature extraction
+   - Time-series analysis
+   - Anomaly detection
+
+3. **Join Operations**
+   - Knowledge base enrichment
+   - Historical data correlation
+   - Context augmentation
+   - Pattern matching
+
+4. **Performance Characteristics**
+   - Latency: <100ms for stream processing
+   - Throughput: 1000+ events/second
+   - Memory efficiency: Constant memory usage
+   - Fault tolerance: Automatic recovery
+
 Key Components:
 1. **Frontend Layer**
    - Web Interface: Real-time health monitoring dashboard

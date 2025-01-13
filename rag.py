@@ -25,6 +25,7 @@ import random
 import numpy as np
 from custom_pathway import PathwayAnalyzer
 from langchain.prompts import PromptTemplate
+from pathway_processor import HealthMetricsPathway
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -218,11 +219,17 @@ class HealthAnalyzer:
             'respiratory_rate': {'low': 12, 'high': 20},
             'body_temperature': {'low': 36.5, 'high': 37.5}
         }
+        self.pathway = HealthMetricsPathway()
 
     def analyze(self, user_data: dict) -> dict:
         try:
-            # Generate metrics
+            # Process through Pathway first
+            pathway_results = self.pathway.create_pipeline()
+            
+            # Generate metrics with Pathway enrichment
             metrics = HealthMetricsSimulator.generate_metrics(user_data)
+            metrics['real_time'].update(pathway_results.get('stats', {}))
+            
             self.current_metrics = metrics['real_time']
             
             # Generate analysis
