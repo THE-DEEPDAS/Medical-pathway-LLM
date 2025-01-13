@@ -2,6 +2,9 @@
 
 A comprehensive healthcare monitoring solution that integrates Retrieval-Augmented Generation (RAG), dynamic vital signs simulation, and real-time analysis using locally deployed Large Language Models. The system employs advanced time-series analysis and medical domain-specific contextual awareness to provide evidence-based health assessments.
 
+## Documentation
+The documentation for the whole project: https://drive.google.com/file/d/1EGWcIiWDv9Lu-lV_HagzjyneN3ul9VPy/view?usp=drivesdk
+
 ## System Architecture
 
 ### Technical Stack
@@ -225,11 +228,9 @@ Evaluation Metrics = {
 <p align="center">
   <img src="images\user_setup.png" width="350" title="Dashboard Overview">
   <img src = "images\results5.jpg" width="350" title="Dashboard Overview 2">
-  <img src = "images\results4.jpg" width="350" title="Dashboard Overview 2">
-  <img src = "images\results3.jpg" width="350" title="Dashboard Overview 2">
-  <img src = "images\results1.jpg" width="350" title="Dashboard Overview 2">
-  <img src = "images\results2.jpg" width="350" title="Dashboard Overview 2">
-  alt="Gallery">
+  <img src = "images\results3.jpg" width="350" title="Dashboard Overview 3">
+  <img src = "images\results1.jpg" width="350" title="Dashboard Overview 4">
+  <img src = "images\results2.jpg" width="350" title="Dashboard Overview 5">
 </p>
 
 ### [Dashboard Overview]
