@@ -7,6 +7,16 @@ Repo Link: https://github.com/THE-DEEPDAS/Medical-pathway-LLM
 ## Documentation
 The documentation for the whole project: https://drive.google.com/file/d/1EGWcIiWDv9Lu-lV_HagzjyneN3ul9VPy/view?usp=drivesdk
 
+## Demo Video
+Inside the repository find the name: Demo Video.mp4
+<video width="600" controls autoplay loop>
+  <source src="https://drive.google.com/file/d/1Jt_rtO7lXAToI7VY_nmp65JjnHuHt0ig/view?usp=sharing" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+if the ablove autoplay doesn't work so extra attempt
+[Click here to watch the demo video](https://drive.google.com/file/d/1Jt_rtO7lXAToI7VY_nmp65JjnHuHt0ig/view?usp=sharing)
+
+
 ## System Architecture
 
 ### Technical Stack
