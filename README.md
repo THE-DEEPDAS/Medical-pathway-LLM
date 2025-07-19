@@ -16,7 +16,6 @@ Inside the repository find the name: Demo Video.mp4
 if the ablove autoplay doesn't work so extra attempt
 [Click here to watch the demo video](https://drive.google.com/file/d/1Jt_rtO7lXAToI7VY_nmp65JjnHuHt0ig/view?usp=sharing)
 
-
 ## System Architecture
 
 ### Technical Stack
